@@ -16,8 +16,8 @@ Events (delivery, opens, clicks, bounces, complaints):
 ```
 
 The proxy handles:
-- **Sending** — Parses Mailgun multipart form data, substitutes `%recipient.*%` template variables, builds raw MIME messages, sends via SES with concurrency limiting
-- **Event tracking** — Polls SQS for SES events (delivery, open, click, bounce, complaint), maps them to Mailgun event format, stores in SQLite
+- **Sending** — Parses Mailgun multipart form data, substitutes `%recipient.*%` template variables, **ACKs immediately** (Mailgun semantics), then delivers via SES in the background with concurrency limiting. Per-`(ghost email id, recipient)` claims prevent Ghost's 60s client timeout from producing duplicate SES sends.
+- **Event tracking** — Polls SQS for SES events (delivery, open, click, bounce, complaint), maps them to Mailgun event format, stores in SQLite. Events API paging always returns valid absolute URLs (empty strings break `mailgun.js`).
 - **Suppressions** — Automatically records permanent bounces and complaints; Ghost can delete suppressions via the Mailgun API
 - **Authentication** — Validates Ghost's Mailgun Basic auth against your configured API key
 
@@ -186,7 +186,7 @@ All `/v3/*` endpoints require Basic auth with any username and your `PROXY_API_K
 | `MAILGUN_DOMAIN` | Yes | — | Your sending domain |
 | `PORT` | No | `3003` | HTTP port |
 | `LOG_LEVEL` | No | `info` | Set to `debug` for per-recipient send logs |
-| `SEND_CONCURRENCY` | No | `10` | Max parallel SES sends per batch |
+| `SEND_CONCURRENCY` | No | `25` | Max parallel SES sends across in-flight batches |
 
 ## Event pipeline detail
 
@@ -213,14 +213,20 @@ All `/v3/*` endpoints require Basic auth with any username and your `PROXY_API_K
 
 ## Database
 
-The proxy uses SQLite (via `better-sqlite3`) stored at `/data/ses-proxy.db`. Four tables:
+The proxy uses SQLite (via `better-sqlite3`) stored at `/data/ses-proxy.db`. Five tables:
 
 - **message_map** — Batch metadata from send requests (Ghost email ID, tags)
 - **recipient_emails** — Maps SES message IDs to batch/recipient for event correlation
+- **send_claims** — Idempotency keys `(ghost_email_id, recipient)` so Ghost retries cannot double-send
 - **events** — Normalized events in Mailgun format, queried by Ghost
 - **suppressions** — Permanent bounces and complaints
 
 A cleanup job runs daily, deleting records older than 90 days.
+
+## Known Ghost integration constraints
+
+- Ghost's mailgun.js client uses a **60s HTTP timeout** on `POST /messages`. Real Mailgun queues and returns in milliseconds; this proxy must do the same (v1.1.0+). Holding the connection until SES finishes caused Ghost to retry batches and subscribers received digests 2–3×.
+- Ghost's mailgun.js `parsePageLinks` runs `new URL()` on **every** `paging.*` value. Empty strings (`""`) throw `Invalid URL` and abort the entire email-analytics job — delivery/open stats never update.
 
 ## Limitations
 

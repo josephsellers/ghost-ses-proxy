@@ -1,6 +1,6 @@
 {
   "name": "ghost-ses-proxy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Send Ghost newsletter emails through AWS SES instead of Mailgun — drop-in Mailgun API proxy",
   "main": "server.js",
   "scripts": {

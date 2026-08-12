@@ -13,14 +13,17 @@ var app = express();
 app.get('/health', function(req, res) {
   var messageMapCount = db.prepare('SELECT COUNT(*) as c FROM message_map').get().c;
   var recipientCount = db.prepare('SELECT COUNT(*) as c FROM recipient_emails').get().c;
+  var claimCount = db.prepare('SELECT COUNT(*) as c FROM send_claims').get().c;
   var eventCount = db.prepare('SELECT COUNT(*) as c FROM events').get().c;
   var suppressionCount = db.prepare('SELECT COUNT(*) as c FROM suppressions').get().c;
 
   res.json({
     status: 'ok',
+    version: require('./package.json').version,
     tables: {
       message_map: messageMapCount,
       recipient_emails: recipientCount,
+      send_claims: claimCount,
       events: eventCount,
       suppressions: suppressionCount
     }
